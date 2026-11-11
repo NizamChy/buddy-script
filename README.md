@@ -89,12 +89,12 @@ npm run dev:web                            # http://localhost:3000
 npm test                                   # API integration tests (uses the local DB)
 ```
 
-Seeded accounts: `demo@buddyscript.com` / `Demo@12345` (user) and `admin@buddyscript.com` / `Admin@12345` (admin).
+Seeded accounts: `demo@buddyscript.com` / `Demo@12345` (user) and, locally, `admin@buddyscript.com` / `Admin@12345` (admin). In production only the demo password is public; the admin password comes from `SEED_ADMIN_PASSWORD` and the other sample users get random passwords.
 
 ## Deployment
 
 - **Web**: Vercel project with root `apps/web`, env `API_URL=<api url>`.
-- **API**: Vercel project with root `apps/api` (Express zero-config, `src/index.ts` exports the app), env `DATABASE_URL` (pooled), `DIRECT_URL`, `JWT_ACCESS_SECRET`, `CORS_ORIGINS=<web url>`, `BLOB_READ_WRITE_TOKEN`.
+- **API**: Vercel project with root `apps/api` (Express zero-config, `src/index.ts` exports the app), env `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (both set by the Neon integration), `JWT_ACCESS_SECRET`, `CORS_ORIGINS=<web url>`, `BLOB_READ_WRITE_TOKEN`.
 - **Database**: Neon serverless PostgreSQL; `npm run db:deploy && npm run db:seed` from `apps/api`.
 
 ## What I'd add next

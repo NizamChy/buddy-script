@@ -1,5 +1,5 @@
 // Long-running server for local development / container hosting.
-import { createApp } from "./app";
+import { createApp } from "./create-app";
 import { env } from "./config/env";
 
 createApp().listen(env.PORT, () => {

@@ -1,4 +1,5 @@
 ﻿/* Seeds demo accounts and some sample content. Safe to run repeatedly. */
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { PrismaClient, type Role } from "@prisma/client";
 
@@ -21,10 +22,21 @@ const users: Array<{
   { key: "ryan", firstName: "Ryan", lastName: "Roslansky", email: "ryan@buddyscript.com", password: "Ryan@12345", role: "USER", avatarUrl: "/images/people2.png" },
 ];
 
+/**
+ * Only the demo account has a published password. In production every other seeded account
+ * (including the admin) gets a password nobody knows, unless SEED_ADMIN_PASSWORD is provided,
+ * so a public repo never hands out admin or impersonation access.
+ */
+function passwordFor(u: (typeof users)[number]): string {
+  if (process.env.NODE_ENV !== "production" || u.key === "demo") return u.password;
+  if (u.key === "admin" && process.env.SEED_ADMIN_PASSWORD) return process.env.SEED_ADMIN_PASSWORD;
+  return randomBytes(24).toString("base64url");
+}
+
 async function main() {
   const ids: Record<string, string> = {};
   for (const u of users) {
-    const passwordHash = await bcrypt.hash(u.password, 12);
+    const passwordHash = await bcrypt.hash(passwordFor(u), 12);
     const row = await prisma.user.upsert({
       where: { email: u.email },
       update: { role: u.role },
