@@ -31,7 +31,7 @@ test("search, follow, Following feed and notifications", async ({ browser }) => 
 
   // Like it so Cara gets two notifications (follow + like).
   await d.locator("article", { hasText: text }).getByRole("button", { name: "Like", exact: true }).click();
-  await expect(d.locator("article", { hasText: text }).getByRole("button", { name: "Liked" })).toBeVisible();
+  await expect(d.locator("article", { hasText: text }).getByRole("button", { name: "Liked", exact: true })).toBeVisible();
 
   const c = cara.page;
   await c.reload();

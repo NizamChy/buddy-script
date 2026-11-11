@@ -21,7 +21,7 @@ test("post, like, comment and reply; private posts stay private", async ({ brows
 
   // Like (optimistic + persisted).
   await card.getByRole("button", { name: "Like", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Liked" })).toHaveAttribute("aria-pressed", "true");
+  await expect(card.getByRole("button", { name: "Liked", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(card.getByText("You", { exact: true })).toBeVisible();
 
   // Comment.
@@ -43,6 +43,6 @@ test("post, like, comment and reply; private posts stay private", async ({ brows
   // The like survives a reload.
   await ben.page.reload();
   await expect(
-    ben.page.locator("article", { hasText: publicText }).getByRole("button", { name: "Liked" }),
+    ben.page.locator("article", { hasText: publicText }).getByRole("button", { name: "Liked", exact: true }),
   ).toBeVisible();
 });
