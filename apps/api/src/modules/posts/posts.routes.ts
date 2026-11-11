@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { decodeCursor, limitSchema } from "../../lib/cursor";
 import { badRequest } from "../../lib/errors";
-import { deleteImage, storeImage } from "../../lib/storage";
+import { deleteImage, inspectImage } from "../../lib/storage";
 import { requireAuth } from "../../middleware/auth";
 import {
   likePost,
@@ -19,6 +19,7 @@ import {
   getPost,
   getVisiblePostOrThrow,
   listFeed,
+  listFollowingFeed,
   updatePost,
 } from "./posts.service";
 
@@ -45,7 +46,11 @@ const writeLimiter = rateLimit({
 });
 
 const idParam = z.object({ id: z.uuid("Invalid id") });
-const listQuery = z.object({ cursor: z.string().optional(), limit: limitSchema(10, 30) });
+const listQuery = z.object({
+  cursor: z.string().optional(),
+  limit: limitSchema(10, 30),
+  scope: z.enum(["all", "following"]).default("all"),
+});
 
 const visibility = z.enum(["PUBLIC", "PRIVATE"]);
 const content = z.string().trim().max(5000, "Post is too long (max 5000 characters)");
@@ -60,21 +65,20 @@ const updateSchema = z
   .refine((v) => v.content !== undefined || v.visibility !== undefined, "Nothing to update");
 
 postsRouter.get("/", async (req, res) => {
-  const { cursor, limit } = listQuery.parse(req.query);
-  res.json(await listFeed(req.user!, limit, decodeCursor(cursor)));
+  const { cursor, limit, scope } = listQuery.parse(req.query);
+  const list = scope === "following" ? listFollowingFeed : listFeed;
+  res.json(await list(req.user!, limit, decodeCursor(cursor)));
 });
 
 postsRouter.post("/", writeLimiter, upload.single("image"), async (req, res) => {
   const body = createSchema.parse(req.body);
   if (!body.content && !req.file) throw badRequest("Write something or add a photo");
-  const image = req.file ? await storeImage(req.file.buffer) : undefined;
-  try {
-    const post = await createPost(req.user!, { ...body, image });
-    res.status(201).json({ post });
-  } catch (err) {
-    await deleteImage(image?.url);
-    throw err;
-  }
+  // Only a header check here; the heavy re-encode runs in a background job.
+  const image = req.file
+    ? { buffer: req.file.buffer, ...(await inspectImage(req.file.buffer)) }
+    : undefined;
+  const post = await createPost(req.user!, { ...body, image });
+  res.status(201).json({ post });
 });
 
 postsRouter.get("/:id", async (req, res) => {

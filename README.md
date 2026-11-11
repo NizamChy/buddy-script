@@ -16,6 +16,12 @@ a **Next.js** front end, an **Express** REST API and **PostgreSQL** (via Prisma)
 | Posts | Text and/or image, public or "only me", edit (text + visibility), delete, copy link. "edited" marker. |
 | Likes | Like / unlike posts, comments and replies with optimistic UI; "You, Radovan and 3 others" summary; dialog listing **who liked** a post/comment/reply. |
 | Comments | Comments and one level of replies (like Facebook), edit/delete, like/unlike, lazy-loaded with "view more". Post owners can moderate comments on their posts. |
+| Follow graph | Follow / unfollow people (post menu, "You Might Like" suggestions, people search) with follower/following counts. **For you / Following** feed tabs. |
+| Following timeline | Fan-out-on-write timeline cache in **Redis** (sorted set per user), with fan-out-on-read for "celebrity" authors and a transparent SQL fallback when Redis is unavailable. |
+| Search | **Full-text post search** (PostgreSQL `tsvector` + GIN, prefix matching, visibility-aware) and **people search** by partial name (trigram GIN index). |
+| Notifications | Likes, comments, replies, comment likes and follows; bell with unread badge and dropdown, `/notifications` page, mark read / mark all read. Undoing an action retracts its unread notification. |
+| Images | Uploads are validated instantly, then normalised by a **background job** (resize, rotate, WebP, EXIF strip, blur placeholder). Served through the **Next.js / Vercel image CDN** (AVIF/WebP, responsive widths, year-long cache). |
+| Quality | Vitest + Supertest API tests, **Playwright** end-to-end tests, GitHub Actions **CI** (Postgres + Redis services). |
 | UX | Pixel-faithful conversion of the supplied design (its own CSS is reused), dark mode, responsive/mobile layout, toasts, confirm dialogs, skeletons, keyboard shortcut (Ctrl+Enter to post), paste an image into the composer. |
 
 ## Architecture
@@ -23,7 +29,8 @@ a **Next.js** front end, an **Express** REST API and **PostgreSQL** (via Prisma)
 ```
 apps/
   web/   Next.js 16 (App Router) · Tailwind 4 · shadcn/ui (Base UI) · TanStack Query · react-hook-form + zod
-  api/   Express 5 · Prisma 6 · PostgreSQL · zod · sharp · Vercel Blob
+  api/   Express 5 · Prisma 6 · PostgreSQL · Redis (ioredis) · zod · sharp · Vercel Blob
+  e2e/   Playwright end-to-end tests
 design/  The original HTML/CSS/images the UI was converted from
 ```
 
@@ -41,6 +48,16 @@ the API URL is never exposed to the client.
 - The feed is **hydrated in a constant number of queries** per page (authors, `likedByMe`, and the 3 most recent likers per post via a `LATERAL` join) — no N+1.
 - Comments and replies have their own `(post_id, parent_id, created_at, id)` / `(parent_id, created_at, id)` indexes and are loaded lazily per post.
 - Images are re-encoded and resized server-side, stored in object storage (Vercel Blob) with immutable cache headers, and their dimensions are stored so the UI reserves space (no layout shift).
+
+### Follow graph, timelines and background jobs
+
+- `follows` has a composite PK `(follower_id, followee_id)` plus a reverse index; follower/following counts are denormalised and updated in the same transaction.
+- **Following timeline = fan-out on write.** When a public post is created, a job pushes its id into each follower's Redis sorted set `tl:<userId>` (pipelined in batches of 1 000, capped at 800 entries, 7-day TTL). Reading a page is one `ZREVRANGEBYSCORE` plus a hydrate query by primary key.
+- **Celebrities fan out on read.** Authors above `FANOUT_FOLLOWER_LIMIT` (default 10 000) are not pushed to millions of sets; their recent posts are merged in at read time, so a post costs O(1) writes however big the audience.
+- Timelines are built lazily from SQL on first read, invalidated on follow/unfollow, and trimmed of deleted/hidden posts while hydrating. If Redis is down every request silently falls back to SQL.
+- **Jobs** live in a Postgres `jobs` table written in the **same transaction** as the post (transactional outbox, so nothing is lost). Workers claim with `FOR UPDATE SKIP LOCKED`, retry with exponential backoff and recover stale claims. On Vercel jobs run right after the response via `waitUntil()`, with a daily cron sweep (`/api/internal/jobs/run`, protected by `CRON_SECRET`); locally a poller drains the queue.
+- **Notifications** are written in the transaction of the action that caused them, skip self-actions, and are filtered on read so you never see notifications about posts you can no longer access.
+- **Search** uses an expression GIN index on `to_tsvector('english', content)` with sanitised prefix `tsquery`s (`photo` finds "photography"), and a `pg_trgm` GIN index on lower-cased full names for people search.
 
 ### Security decisions
 
@@ -73,6 +90,11 @@ the API URL is never exposed to the client.
 | `GET` · `POST /api/posts/:id/comments` | Top-level comments; `POST` with `parentId` creates a reply |
 | `GET /api/comments/:id/replies` | Replies of a comment |
 | `PATCH` · `DELETE /api/comments/:id` · `PUT` · `DELETE /api/comments/:id/like` · `GET /api/comments/:id/likes` | Comment/reply actions |
+| `GET /api/posts?scope=all|following` | "For you" or Following timeline |
+| `GET /api/users/suggestions` · `GET /api/users/:id` · `PUT` · `DELETE /api/users/:id/follow` | People and follow graph |
+| `GET /api/search/posts?q=` · `GET /api/search/users?q=` | Full-text post search / people search |
+| `GET /api/notifications` · `GET /api/notifications/unread-count` · `POST /api/notifications/read` | Notifications |
+| `GET /api/internal/jobs/run` · `/stats` | Job runner (cron secret or admin) |
 | `GET /api/admin/stats` | Admin only (RBAC) |
 
 ## Running locally
@@ -80,23 +102,27 @@ the API URL is never exposed to the client.
 Requirements: Node 20+, Docker.
 
 ```bash
-docker compose up -d                       # PostgreSQL on localhost:5434
+docker compose up -d                       # PostgreSQL on localhost:5434, Redis on 6380
 cp apps/api/.env.example apps/api/.env     # then set JWT_ACCESS_SECRET
 cp apps/web/.env.example apps/web/.env.local
 npm run setup                              # install, migrate, seed demo data
 npm run dev:api                            # http://localhost:4000
 npm run dev:web                            # http://localhost:3000
 npm test                                   # API integration tests (uses the local DB)
+npm --prefix apps/e2e install && npx --prefix apps/e2e playwright install chromium
+npm run test:e2e                           # Playwright (reuses the dev servers above)
 ```
+
+CI (`.github/workflows/ci.yml`) runs all of this on every push and PR against Postgres and Redis service containers: migrations + seed, API typecheck and tests, web lint/typecheck/build, then Playwright against the production build.
 
 Seeded accounts: `demo@buddyscript.com` / `Demo@12345` (user) and, locally, `admin@buddyscript.com` / `Admin@12345` (admin). In production only the demo password is public; the admin password comes from `SEED_ADMIN_PASSWORD` and the other sample users get random passwords.
 
 ## Deployment
 
 - **Web**: Vercel project with root `apps/web`, env `API_URL=<api url>`.
-- **API**: Vercel project with root `apps/api` (Express zero-config, `src/index.ts` exports the app), env `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (both set by the Neon integration), `JWT_ACCESS_SECRET`, `CORS_ORIGINS=<web url>`, `BLOB_READ_WRITE_TOKEN`.
+- **API**: Vercel project with root `apps/api` (Express zero-config, `src/index.ts` exports the app), env `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (both set by the Neon integration), `JWT_ACCESS_SECRET`, `CORS_ORIGINS=<web url>`, `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, and optionally `REDIS_URL` (Upstash Redis).
 - **Database**: Neon serverless PostgreSQL; `npm run db:deploy && npm run db:seed` from `apps/api`.
 
 ## What I'd add next
 
-Full-text search, notifications, follow graph with a fan-out-on-write timeline cache (Redis) for very large audiences, a CDN image transformer, background jobs for image processing, Playwright end-to-end tests and CI.
+Real-time delivery (SSE/WebSocket) for notifications and new posts, user profile pages and avatars upload, hashtags and mentions, ranking for the "For you" feed, moving search to a dedicated engine (e.g. OpenSearch) at very large scale, and observability (tracing, metrics, error reporting).

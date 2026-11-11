@@ -14,6 +14,19 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // CDN image transformer: next/image requests go through Vercel Image Optimization, which
+  // resizes per device width, serves AVIF/WebP and caches the result at the edge.
+  images: {
+    formats: ["image/avif", "image/webp"],
+    // A few well-spread widths keep the number of cached variants (and cost) small.
+    deviceSizes: [640, 828, 1080, 1280],
+    imageSizes: [32, 48, 64, 96, 128],
+    qualities: [75],
+    // Uploaded files have unique, immutable names, so variants can be cached for a year.
+    minimumCacheTTL: 31536000,
+    remotePatterns: [{ protocol: "https", hostname: "*.public.blob.vercel-storage.com" }],
+    localPatterns: [{ pathname: "/images/**" }],
+  },
   turbopack: {
     rules: {
       "*.css": { loaders: ["@tailwindcss/turbopack"], as: "*.css" },

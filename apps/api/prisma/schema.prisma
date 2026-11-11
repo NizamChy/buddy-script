@@ -19,24 +19,54 @@ enum Visibility {
   PRIVATE
 }
 
+enum ImageStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum NotificationType {
+  POST_LIKE
+  COMMENT
+  REPLY
+  COMMENT_LIKE
+  FOLLOW
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  firstName    String   @map("first_name") @db.VarChar(60)
-  lastName     String   @map("last_name") @db.VarChar(60)
+  id             String   @id @default(uuid()) @db.Uuid
+  firstName      String   @map("first_name") @db.VarChar(60)
+  lastName       String   @map("last_name") @db.VarChar(60)
   /// Always stored lower-cased; uniqueness is therefore case-insensitive.
-  email        String   @unique @db.VarChar(254)
-  passwordHash String   @map("password_hash")
-  role         Role     @default(USER)
-  avatarUrl    String?  @map("avatar_url")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  email          String   @unique @db.VarChar(254)
+  passwordHash   String   @map("password_hash")
+  role           Role     @default(USER)
+  avatarUrl      String?  @map("avatar_url")
+  /// Denormalised follow counters (maintained in the follow/unfollow transaction).
+  followerCount  Int      @default(0) @map("follower_count")
+  followingCount Int      @default(0) @map("following_count")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  posts        Post[]
-  comments     Comment[]
-  postLikes    PostLike[]
-  commentLikes CommentLike[]
-  sessions     Session[]
+  posts              Post[]
+  comments           Comment[]
+  postLikes          PostLike[]
+  commentLikes       CommentLike[]
+  sessions           Session[]
+  following          Follow[]       @relation("Following")
+  followers          Follow[]       @relation("Followers")
+  notifications      Notification[] @relation("NotificationRecipient")
+  actedNotifications Notification[] @relation("NotificationActor")
 
+  /// "People you may know": most-followed users first.
+  @@index([followerCount(sort: Desc)])
   @@map("users")
 }
 
@@ -60,23 +90,28 @@ model Session {
 }
 
 model Post {
-  id           String     @id @default(uuid()) @db.Uuid
-  authorId     String     @map("author_id") @db.Uuid
-  content      String?    @db.VarChar(5000)
-  imageUrl     String?    @map("image_url")
-  imageWidth   Int?       @map("image_width")
-  imageHeight  Int?       @map("image_height")
-  visibility   Visibility @default(PUBLIC)
-  editedAt     DateTime?  @map("edited_at") @db.Timestamptz(3)
+  id           String       @id @default(uuid()) @db.Uuid
+  authorId     String       @map("author_id") @db.Uuid
+  content      String?      @db.VarChar(5000)
+  imageUrl     String?      @map("image_url")
+  imageWidth   Int?         @map("image_width")
+  imageHeight  Int?         @map("image_height")
+  /// Images are normalised by a background job; the post is visible meanwhile.
+  imageStatus  ImageStatus? @map("image_status")
+  /// Tiny base64 WebP used as a blurred placeholder while the real image loads.
+  imageBlur    String?      @map("image_blur") @db.VarChar(1024)
+  visibility   Visibility   @default(PUBLIC)
+  editedAt     DateTime?    @map("edited_at") @db.Timestamptz(3)
   /// Denormalised counters, maintained transactionally, so the feed never runs COUNT(*).
-  likeCount    Int        @default(0) @map("like_count")
-  commentCount Int        @default(0) @map("comment_count")
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  likeCount    Int          @default(0) @map("like_count")
+  commentCount Int          @default(0) @map("comment_count")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  author   User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  comments Comment[]
-  likes    PostLike[]
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments      Comment[]
+  likes         PostLike[]
+  notifications Notification[]
 
   /// Feed: public posts, newest first (keyset pagination on created_at, id).
   @@index([visibility, createdAt(sort: Desc), id(sort: Desc)])
@@ -99,11 +134,12 @@ model Comment {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author  User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parent  Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies Comment[]     @relation("CommentReplies")
-  likes   CommentLike[]
+  post          Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent        Comment?       @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       Comment[]      @relation("CommentReplies")
+  likes         CommentLike[]
+  notifications Notification[]
 
   /// Top-level comments of a post (parentId IS NULL), paginated by time.
   @@index([postId, parentId, createdAt(sort: Desc), id(sort: Desc)])
@@ -141,4 +177,72 @@ model CommentLike {
   @@index([commentId, createdAt(sort: Desc)])
   @@index([userId])
   @@map("comment_likes")
+}
+
+/// Directed follow edge. The composite PK makes follow idempotent.
+model Follow {
+  followerId String   @map("follower_id") @db.Uuid
+  followeeId String   @map("followee_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  follower User @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  followee User @relation("Followers", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followeeId])
+  /// Followers of a user (fan-out on write walks this index in pages).
+  @@index([followeeId, followerId])
+  @@map("follows")
+}
+
+model Notification {
+  id          String           @id @default(uuid()) @db.Uuid
+  recipientId String           @map("recipient_id") @db.Uuid
+  actorId     String           @map("actor_id") @db.Uuid
+  type        NotificationType
+  postId      String?          @map("post_id") @db.Uuid
+  commentId   String?          @map("comment_id") @db.Uuid
+  readAt      DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  recipient User     @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  /// Inbox, newest first (keyset pagination).
+  @@index([recipientId, createdAt(sort: Desc), id(sort: Desc)])
+  /// Unread badge: COUNT over (recipient, read_at IS NULL).
+  @@index([recipientId, readAt])
+  @@index([actorId])
+  @@index([postId])
+  @@index([commentId])
+  @@map("notifications")
+}
+
+/// Durable background job queue (Postgres, claimed with FOR UPDATE SKIP LOCKED).
+model Job {
+  id          String    @id @default(uuid()) @db.Uuid
+  type        String    @db.VarChar(64)
+  payload     Json
+  status      JobStatus @default(PENDING)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5) @map("max_attempts")
+  runAt       DateTime  @default(now()) @map("run_at") @db.Timestamptz(3)
+  lockedAt    DateTime? @map("locked_at") @db.Timestamptz(3)
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Workers pick the oldest due job.
+  @@index([status, runAt])
+  @@map("jobs")
+}
+
+/// Original upload bytes waiting for the image job. Never served; deleted after processing.
+model UploadStaging {
+  id        String   @id @default(uuid()) @db.Uuid
+  data      Bytes
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("upload_staging")
 }

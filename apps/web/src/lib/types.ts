@@ -1,5 +1,7 @@
 export type Role = "USER" | "ADMIN";
 export type Visibility = "PUBLIC" | "PRIVATE";
+export type ImageStatus = "PROCESSING" | "READY" | "FAILED";
+export type FeedScope = "all" | "following";
 
 export interface PublicUser {
   id: string;
@@ -21,6 +23,9 @@ export interface Post {
   imageUrl: string | null;
   imageWidth: number | null;
   imageHeight: number | null;
+  /** null = no image; PROCESSING while the background job normalises the upload. */
+  imageStatus: ImageStatus | null;
+  imageBlur: string | null;
   visibility: Visibility;
   likeCount: number;
   commentCount: number;
@@ -29,6 +34,7 @@ export interface Post {
   author: PublicUser;
   likedByMe: boolean;
   recentLikers: PublicUser[];
+  followingAuthor: boolean;
   canEdit: boolean;
   canDelete: boolean;
 }
@@ -62,4 +68,23 @@ export interface Liker {
 export interface LikeResult {
   liked: boolean;
   likeCount: number;
+}
+
+export interface UserSummary extends PublicUser {
+  followerCount: number;
+  followingCount: number;
+  followedByMe: boolean;
+  isMe: boolean;
+}
+
+export type NotificationType = "POST_LIKE" | "COMMENT" | "REPLY" | "COMMENT_LIKE" | "FOLLOW";
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  createdAt: string;
+  read: boolean;
+  actor: PublicUser;
+  post: { id: string; excerpt: string | null; hasImage: boolean } | null;
+  comment: { id: string; excerpt: string | null; parentId: string | null } | null;
 }

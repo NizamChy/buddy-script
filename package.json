@@ -9,6 +9,7 @@
     "dev:web": "npm --prefix apps/web run dev",
     "test": "npm --prefix apps/api test",
     "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/web exec tsc -- --noEmit",
-    "build:web": "npm --prefix apps/web run build"
+    "build:web": "npm --prefix apps/web run build",
+    "test:e2e": "npm --prefix apps/e2e test"
   }
 }

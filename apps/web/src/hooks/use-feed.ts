@@ -1,17 +1,25 @@
 "use client";
 
+import { useEffect } from "react";
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
-import type { Comment, Me, Page, Post, Visibility } from "@/lib/types";
+import type { Comment, FeedScope, Me, Page, Post, Visibility } from "@/lib/types";
 
-export const feedKey = ["feed"] as const;
+/**
+ * Every list of posts lives under ["posts", ...] (both feeds, search results), so one
+ * cache update (like, edit, delete, image ready) reaches every place a post is shown.
+ */
+export const postsKey = ["posts"] as const;
+export const feedKey = (scope: FeedScope) => ["posts", "feed", scope] as const;
+export const searchPostsKey = (q: string) => ["posts", "search", q] as const;
 export const commentsKey = (postId: string) => ["comments", postId] as const;
 export const repliesKey = (commentId: string) => ["replies", commentId] as const;
 
@@ -22,7 +30,7 @@ const errorMessage = (err: unknown) =>
 
 // ---------- cache helpers ----------
 export function patchPost(qc: QueryClient, postId: string, fn: (p: Post) => Post) {
-  qc.setQueryData<Pages<Post>>(feedKey, (data) =>
+  qc.setQueriesData<Pages<Post>>({ queryKey: postsKey }, (data) =>
     data && {
       ...data,
       pages: data.pages.map((pg) => ({
@@ -34,7 +42,7 @@ export function patchPost(qc: QueryClient, postId: string, fn: (p: Post) => Post
 }
 
 function removePost(qc: QueryClient, postId: string) {
-  qc.setQueryData<Pages<Post>>(feedKey, (data) =>
+  qc.setQueriesData<Pages<Post>>({ queryKey: postsKey }, (data) =>
     data && {
       ...data,
       pages: data.pages.map((pg) => ({ ...pg, items: pg.items.filter((p) => p.id !== postId) })),
@@ -57,13 +65,53 @@ function patchCommentEverywhere(qc: QueryClient, commentId: string, fn: (c: Comm
 }
 
 // ---------- queries ----------
-export function useFeed() {
+export function useFeed(scope: FeedScope) {
   return useInfiniteQuery({
-    queryKey: feedKey,
-    queryFn: ({ pageParam }) => api.feed(pageParam),
+    queryKey: feedKey(scope),
+    queryFn: ({ pageParam }) => api.feed(scope, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
   });
+}
+
+export function useSearchPosts(q: string) {
+  return useInfiniteQuery({
+    queryKey: searchPostsKey(q),
+    queryFn: ({ pageParam }) => api.searchPosts(q, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    enabled: q.trim().length > 0,
+  });
+}
+
+/**
+ * While the server normalises an uploaded image in the background, poll that one post
+ * (backing off) and swap the finished image into every cached list when it's ready.
+ */
+export function useImageProcessing(post: Post) {
+  const qc = useQueryClient();
+  const processing = post.imageStatus === "PROCESSING";
+  const query = useQuery({
+    queryKey: ["post", post.id, "image"],
+    queryFn: () => api.post(post.id),
+    enabled: processing,
+    refetchInterval: (q) => Math.min(1000 * 2 ** (q.state.dataUpdateCount ?? 0), 8000),
+    refetchIntervalInBackground: false,
+    retry: false,
+  });
+  const fresh = query.data?.post;
+  useEffect(() => {
+    if (processing && fresh && fresh.imageStatus !== "PROCESSING") {
+      patchPost(qc, post.id, (p) => ({
+        ...p,
+        imageUrl: fresh.imageUrl,
+        imageWidth: fresh.imageWidth,
+        imageHeight: fresh.imageHeight,
+        imageBlur: fresh.imageBlur,
+        imageStatus: fresh.imageStatus,
+      }));
+    }
+  }, [processing, fresh, qc, post.id]);
 }
 
 export function useComments(postId: string, enabled: boolean) {
@@ -92,11 +140,14 @@ export function useCreatePost() {
   return useMutation({
     mutationFn: api.createPost,
     onSuccess: ({ post }) => {
-      qc.setQueryData<Pages<Post>>(feedKey, (data) => {
-        if (!data) return data;
-        const [first, ...rest] = data.pages;
-        return { ...data, pages: [{ ...first, items: [post, ...first.items] }, ...rest] };
-      });
+      // Your own posts head both feeds.
+      for (const scope of ["all", "following"] as const) {
+        qc.setQueryData<Pages<Post>>(feedKey(scope), (data) => {
+          if (!data) return data;
+          const [first, ...rest] = data.pages;
+          return { ...data, pages: [{ ...first, items: [post, ...first.items] }, ...rest] };
+        });
+      }
       toast.success(post.visibility === "PRIVATE" ? "Private post published (only you can see it)" : "Post published");
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -134,7 +185,7 @@ export function useTogglePostLike(me: Me | undefined) {
   return useMutation({
     mutationFn: (v: { post: Post; like: boolean }) => api.setPostLike(v.post.id, v.like),
     onMutate: async ({ post, like }) => {
-      await qc.cancelQueries({ queryKey: feedKey });
+      await qc.cancelQueries({ queryKey: postsKey });
       const before = post;
       patchPost(qc, post.id, (p) => ({
         ...p,

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { encodeCursor, type Cursor } from "../../lib/cursor";
 import { publicUserSelect } from "../../lib/serializers";
+import { notify, retract } from "../notifications/notifications.service";
 
 /**
  * Likes are idempotent: liking twice or unliking something not liked is a no-op.
@@ -19,9 +20,10 @@ export async function likePost(postId: string, userId: string) {
       ? await tx.post.update({
           where: { id: postId },
           data: { likeCount: { increment: 1 } },
-          select: { likeCount: true },
+          select: { likeCount: true, authorId: true },
         })
-      : await tx.post.findUniqueOrThrow({ where: { id: postId }, select: { likeCount: true } });
+      : await tx.post.findUniqueOrThrow({ where: { id: postId }, select: { likeCount: true, authorId: true } });
+    if (count) await notify(tx, { recipientId: post.authorId, actorId: userId, type: "POST_LIKE", postId });
     return { liked: true, likeCount: post.likeCount };
   });
 }
@@ -33,9 +35,10 @@ export async function unlikePost(postId: string, userId: string) {
       ? await tx.post.update({
           where: { id: postId },
           data: { likeCount: { decrement: 1 } },
-          select: { likeCount: true },
+          select: { likeCount: true, authorId: true },
         })
-      : await tx.post.findUniqueOrThrow({ where: { id: postId }, select: { likeCount: true } });
+      : await tx.post.findUniqueOrThrow({ where: { id: postId }, select: { likeCount: true, authorId: true } });
+    if (count) await retract(tx, { recipientId: post.authorId, actorId: userId, type: "POST_LIKE", postId });
     return { liked: false, likeCount: post.likeCount };
   });
 }
@@ -50,9 +53,21 @@ export async function likeComment(commentId: string, userId: string) {
       ? await tx.comment.update({
           where: { id: commentId },
           data: { likeCount: { increment: 1 } },
-          select: { likeCount: true },
+          select: { likeCount: true, authorId: true, postId: true },
         })
-      : await tx.comment.findUniqueOrThrow({ where: { id: commentId }, select: { likeCount: true } });
+      : await tx.comment.findUniqueOrThrow({
+          where: { id: commentId },
+          select: { likeCount: true, authorId: true, postId: true },
+        });
+    if (count) {
+      await notify(tx, {
+        recipientId: c.authorId,
+        actorId: userId,
+        type: "COMMENT_LIKE",
+        postId: c.postId,
+        commentId,
+      });
+    }
     return { liked: true, likeCount: c.likeCount };
   });
 }
@@ -64,9 +79,21 @@ export async function unlikeComment(commentId: string, userId: string) {
       ? await tx.comment.update({
           where: { id: commentId },
           data: { likeCount: { decrement: 1 } },
-          select: { likeCount: true },
+          select: { likeCount: true, authorId: true, postId: true },
         })
-      : await tx.comment.findUniqueOrThrow({ where: { id: commentId }, select: { likeCount: true } });
+      : await tx.comment.findUniqueOrThrow({
+          where: { id: commentId },
+          select: { likeCount: true, authorId: true, postId: true },
+        });
+    if (count) {
+      await retract(tx, {
+        recipientId: c.authorId,
+        actorId: userId,
+        type: "COMMENT_LIKE",
+        postId: c.postId,
+        commentId,
+      });
+    }
     return { liked: false, likeCount: c.likeCount };
   });
 }

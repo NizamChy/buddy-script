@@ -1,4 +1,15 @@
-import type { Comment, LikeResult, Liker, Me, Page, Post, Visibility } from "./types";
+import type {
+  AppNotification,
+  Comment,
+  FeedScope,
+  LikeResult,
+  Liker,
+  Me,
+  Page,
+  Post,
+  UserSummary,
+  Visibility,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -79,7 +90,9 @@ export const api = {
   logout: () => request<void>("/auth/logout", { method: "POST" }),
 
   // Posts
-  feed: (cursor?: string | null) => request<Page<Post>>(`/posts${qs({ cursor, limit: 10 })}`),
+  feed: (scope: FeedScope, cursor?: string | null) =>
+    request<Page<Post>>(`/posts${qs({ scope, cursor, limit: 10 })}`),
+  post: (id: string) => request<{ post: Post }>(`/posts/${id}`),
   createPost: (data: { content: string; visibility: Visibility; image?: Blob | null }) => {
     const form = new FormData();
     form.set("content", data.content);
@@ -115,4 +128,23 @@ export const api = {
     request<LikeResult>(`/comments/${id}/like`, { method: like ? "PUT" : "DELETE" }),
   commentLikers: (id: string, cursor?: string | null) =>
     request<Page<Liker>>(`/comments/${id}/likes${qs({ cursor })}`),
+
+  // People
+  user: (id: string) => request<{ user: UserSummary }>(`/users/${id}`),
+  suggestions: (limit = 5) => request<{ items: UserSummary[] }>(`/users/suggestions${qs({ limit })}`),
+  setFollow: (id: string, follow: boolean) =>
+    request<{ user: UserSummary }>(`/users/${id}/follow`, { method: follow ? "PUT" : "DELETE" }),
+
+  // Search
+  searchPosts: (q: string, cursor?: string | null) =>
+    request<Page<Post>>(`/search/posts${qs({ q, cursor })}`),
+  searchUsers: (q: string, cursor?: string | null) =>
+    request<Page<UserSummary>>(`/search/users${qs({ q, cursor })}`),
+
+  // Notifications
+  notifications: (unread: boolean, cursor?: string | null) =>
+    request<Page<AppNotification>>(`/notifications${qs({ cursor, unread: unread ? "true" : undefined })}`),
+  unreadCount: () => request<{ count: number }>("/notifications/unread-count"),
+  markNotificationsRead: (ids?: string[]) =>
+    request<{ updated: number }>("/notifications/read", { method: "POST", body: JSON.stringify(ids ? { ids } : {}) }),
 };

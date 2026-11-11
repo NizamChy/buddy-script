@@ -12,3 +12,6 @@ next-env.d.ts
 apps/api/uploads/
 *.log
 .DS_Store
+test-results/
+playwright-report/
+blob-report/

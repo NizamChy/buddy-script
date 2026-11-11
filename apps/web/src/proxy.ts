@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // A refresh-token cookie means "probably signed in"; the client silently refreshes the
 // short-lived access token and falls back to /login if the session is really gone.
 const SESSION_COOKIE = "bs_rt";
-const PROTECTED = ["/feed"];
+const PROTECTED = ["/feed", "/search", "/notifications"];
 const AUTH_PAGES = ["/login", "/register"];
 
 export function proxy(request: NextRequest) {
@@ -26,5 +26,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/feed/:path*", "/login", "/register"],
+  matcher: ["/", "/feed/:path*", "/search", "/notifications", "/login", "/register"],
 };

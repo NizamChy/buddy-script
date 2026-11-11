@@ -2,9 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { LogOut, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { NotificationBell } from "@/components/notifications";
 import { UserAvatar } from "@/components/user-avatar";
 import {
   DropdownMenu,
@@ -20,7 +22,39 @@ import { Icons } from "./icons";
 
 const notImplemented = () => toast.info("This section isn't part of the demo yet.");
 
+function SearchBox() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const pathname = usePathname();
+  const [q, setQ] = useState(pathname === "/search" ? (params.get("q") ?? "") : "");
+  return (
+    <form
+      className="_header_form_grp"
+      role="search"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const term = q.trim();
+        if (!term) return;
+        const tab = pathname === "/search" ? params.get("tab") : null;
+        router.push(`/search?q=${encodeURIComponent(term)}${tab ? `&tab=${tab}` : ""}`);
+      }}
+    >
+      {Icons.search}
+      <input
+        className="form-control me-2 _inpt1"
+        type="search"
+        placeholder="Search posts and people"
+        aria-label="Search posts and people"
+        maxLength={100}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+    </form>
+  );
+}
+
 export function Header({ me }: { me: Me }) {
+  const pathname = usePathname();
   const logout = useLogout();
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -52,27 +86,31 @@ export function Header({ me }: { me: Me }) {
           </div>
           <div className="navbar-collapse" id="navbarSupportedContent">
             <div className="_header_form ms-auto">
-              <form className="_header_form_grp" role="search" onSubmit={(e) => { e.preventDefault(); notImplemented(); }}>
-                {Icons.search}
-                <input className="form-control me-2 _inpt1" type="search" placeholder="input search text" aria-label="Search" />
-              </form>
+              <Suspense fallback={null}>
+                <SearchBox />
+              </Suspense>
             </div>
             <ul className="navbar-nav mb-2 mb-lg-0 _header_nav_list ms-auto _mar_r8">
               <li className="nav-item _header_nav_item">
-                <Link className="nav-link _header_nav_link_active _header_nav_link" aria-current="page" href="/feed" aria-label="Home">
+                <Link
+                  className={`nav-link _header_nav_link ${pathname === "/feed" ? "_header_nav_link_active" : ""}`}
+                  aria-current={pathname === "/feed" ? "page" : undefined}
+                  href="/feed"
+                  aria-label="Home"
+                >
                   {Icons.home}
                 </Link>
               </li>
               <li className="nav-item _header_nav_item">
-                <button type="button" className="nav-link _header_nav_link border-0 bg-transparent" onClick={notImplemented} aria-label="Friends">
+                <Link
+                  className={`nav-link _header_nav_link ${pathname === "/search" ? "_header_nav_link_active" : ""}`}
+                  href="/search?tab=people"
+                  aria-label="Find people"
+                >
                   {Icons.friends}
-                </button>
+                </Link>
               </li>
-              <li className="nav-item _header_nav_item">
-                <button type="button" className="nav-link _header_nav_link border-0 bg-transparent" onClick={notImplemented} aria-label="Notifications">
-                  {Icons.bell}
-                </button>
-              </li>
+              <NotificationBell icon={Icons.bell} />
               <li className="nav-item _header_nav_item">
                 <button type="button" className="nav-link _header_nav_link border-0 bg-transparent" onClick={notImplemented} aria-label="Messages">
                   {Icons.chat}

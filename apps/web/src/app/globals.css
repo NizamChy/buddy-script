@@ -184,3 +184,68 @@ body :where(h1, h2, h3, h4, h5, h6, p, a, span, button, input, textarea, label, 
 .bs-liked {
   color: #1890ff !important;
 }
+
+/* Notification dropdown (the design toggles it with a `show` class). */
+._notification_dropdown.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  z-index: 50;
+}
+._notification_dropdown {
+  height: auto;
+  max-height: calc(100vh - 90px);
+}
+.bs-counting {
+  pointer-events: none;
+}
+
+/* Feed / search tabs. */
+.bs-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+}
+.bs-tab {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color7, #666);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.bs-tab:hover {
+  background: rgba(24, 144, 255, 0.06);
+}
+.bs-tab-active {
+  background: rgba(24, 144, 255, 0.12);
+  color: #1890ff;
+}
+.bs-tab:focus-visible {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Placeholder while a photo is being processed in the background. */
+.bs-shimmer {
+  background: linear-gradient(100deg, #f0f2f5 30%, #e4e8ee 50%, #f0f2f5 70%);
+  background-size: 200% 100%;
+  animation: bs-shimmer 1.4s ease-in-out infinite;
+}
+._dark_wrapper .bs-shimmer {
+  background: linear-gradient(100deg, #1f2937 30%, #2b3646 50%, #1f2937 70%);
+  background-size: 200% 100%;
+}
+@keyframes bs-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bs-shimmer {
+    animation: none;
+  }
+}

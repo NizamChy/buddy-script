@@ -3,8 +3,9 @@
 import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query";
 import { useFeed } from "@/hooks/use-feed";
-import type { Me } from "@/lib/types";
+import type { FeedScope, Me, Page, Post } from "@/lib/types";
 import { PostCard } from "./post-card";
 
 function PostSkeleton() {
@@ -24,9 +25,30 @@ function PostSkeleton() {
   );
 }
 
-/** Infinite, newest-first feed. The next page loads as the sentinel nears the viewport. */
-export function PostList({ me }: { me: Me }) {
-  const feed = useFeed();
+type PostsQuery = UseInfiniteQueryResult<InfiniteData<Page<Post>, unknown>>;
+
+export function FeedPostList({ me, scope }: { me: Me; scope: FeedScope }) {
+  const feed = useFeed(scope);
+  return (
+    <PostList
+      me={me}
+      query={feed}
+      empty={
+        scope === "following"
+          ? "Your Following feed is empty. Follow people from “You Might Like” or search to see their posts here."
+          : "No posts yet — be the first to share something!"
+      }
+    />
+  );
+}
+
+/** Infinite list of posts. The next page loads as the sentinel nears the viewport. */
+export function PostList({ me, query: feed, empty, endText = "You're all caught up ✨" }: {
+  me: Me;
+  query: PostsQuery;
+  empty: string;
+  endText?: string;
+}) {
   const sentinel = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = feed;
 
@@ -43,7 +65,7 @@ export function PostList({ me }: { me: Me }) {
     return () => io.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (feed.isPending) {
+  if (feed.isPending && feed.fetchStatus !== "idle") {
     return (
       <div aria-busy="true" aria-label="Loading posts">
         <PostSkeleton />
@@ -55,7 +77,7 @@ export function PostList({ me }: { me: Me }) {
   if (feed.isError) {
     return (
       <div className="_feed_inner_timeline_post_area _b_radious6 _padd_b24 _padd_t24 _padd_r24 _padd_l24 _mar_b16 text-center">
-        <p className="mb-3 text-[#666]">We couldn&apos;t load the feed.</p>
+        <p className="mb-3 text-[#666]">We couldn&apos;t load these posts.</p>
         <button type="button" className="_feed_inner_text_area_btn_link mx-auto" onClick={() => feed.refetch()}>
           Try again
         </button>
@@ -63,12 +85,12 @@ export function PostList({ me }: { me: Me }) {
     );
   }
 
-  const posts = feed.data.pages.flatMap((p) => p.items);
+  const posts = feed.data?.pages.flatMap((p) => p.items) ?? [];
 
   if (posts.length === 0) {
     return (
       <div className="_feed_inner_timeline_post_area _b_radious6 _padd_b24 _padd_t24 _padd_r24 _padd_l24 _mar_b16 text-center">
-        <p className="mb-0 text-[#666]">No posts yet — be the first to share something!</p>
+        <p className="mb-0 text-[#666]">{empty}</p>
       </div>
     );
   }
@@ -94,7 +116,7 @@ export function PostList({ me }: { me: Me }) {
         </button>
       )}
       {!hasNextPage && (
-        <p className="py-4 text-center text-sm text-[#999]">You&apos;re all caught up ✨</p>
+        <p className="py-4 text-center text-sm text-[#999]">{endText}</p>
       )}
     </>
   );

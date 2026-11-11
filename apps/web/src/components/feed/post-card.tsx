@@ -1,8 +1,7 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
 import { memo, useRef, useState } from "react";
-import { Globe, Link2, Loader2, Lock } from "lucide-react";
+import { Globe, Link2, Loader2, Lock, UserCheck, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { UserAvatar } from "@/components/user-avatar";
@@ -23,12 +22,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useDeletePost, useTogglePostLike, useUpdatePost } from "@/hooks/use-feed";
+import { useToggleFollow } from "@/hooks/use-social";
 import { compactNumber, fullName, timeAgo } from "@/lib/format";
 import type { Me, Post, Visibility } from "@/lib/types";
 import type { CommentFormHandle } from "./comment-form";
 import { CommentSection } from "./comments";
 import { Icons } from "./icons";
 import { LikersDialog } from "./likers-dialog";
+import { PostImage } from "./post-image";
 
 const COLLAPSE_AT = 400;
 
@@ -53,6 +54,8 @@ export const PostCard = memo(function PostCard({ post, me }: { post: Post; me: M
   const like = useTogglePostLike(me);
   const del = useDeletePost();
   const update = useUpdatePost();
+  const follow = useToggleFollow();
+  const isMine = post.authorId === me.id;
 
   const content = post.content ?? "";
   const long = content.length > COLLAPSE_AT;
@@ -111,6 +114,24 @@ export const PostCard = memo(function PostCard({ post, me }: { post: Post; me: M
                   <DropdownMenuItem onClick={copyLink}>
                     <Link2 className="size-4 text-[#1890ff]" /> Copy link
                   </DropdownMenuItem>
+                  {!isMine && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        follow.mutate({
+                          userId: post.authorId,
+                          follow: !post.followingAuthor,
+                          name: post.author.firstName,
+                        })
+                      }
+                    >
+                      {post.followingAuthor ? (
+                        <UserCheck className="size-4 text-[#1890ff]" />
+                      ) : (
+                        <UserPlus className="size-4 text-[#1890ff]" />
+                      )}
+                      {post.followingAuthor ? "Unfollow" : "Follow"} {post.author.firstName}
+                    </DropdownMenuItem>
+                  )}
                   {post.canEdit && (
                     <>
                       <DropdownMenuItem onClick={() => setEditOpen(true)}>
@@ -159,24 +180,7 @@ export const PostCard = memo(function PostCard({ post, me }: { post: Post; me: M
             )}
           </div>
         )}
-        {post.imageUrl && (
-          <div className="_feed_inner_timeline_image">
-            <img
-              src={post.imageUrl}
-              alt={content ? content.slice(0, 120) : `Photo by ${fullName(post.author)}`}
-              className="_time_img"
-              loading="lazy"
-              decoding="async"
-              width={post.imageWidth ?? undefined}
-              height={post.imageHeight ?? undefined}
-              style={
-                post.imageWidth && post.imageHeight
-                  ? { aspectRatio: `${post.imageWidth} / ${post.imageHeight}` }
-                  : undefined
-              }
-            />
-          </div>
-        )}
+        {(post.imageUrl || post.imageStatus) && <PostImage post={post} />}
       </div>
 
       <div className="_feed_inner_timeline_total_reacts _padd_r24 _padd_l24 _mar_b26">

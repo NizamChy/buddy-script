@@ -4,6 +4,7 @@ import { encodeCursor, type Cursor } from "../../lib/cursor";
 import { badRequest, forbidden, notFound } from "../../lib/errors";
 import { publicUserSelect } from "../../lib/serializers";
 import type { Viewer } from "../posts/posts.service";
+import { notify } from "../notifications/notifications.service";
 
 const commentSelect = {
   id: true,
@@ -113,14 +114,16 @@ export async function createComment(
   input: { content: string; parentId?: string },
 ) {
   let rootId: string | null = null;
+  let parentAuthorId: string | null = null;
   if (input.parentId) {
     const parent = await prisma.comment.findUnique({
       where: { id: input.parentId },
-      select: { id: true, postId: true, parentId: true },
+      select: { id: true, postId: true, parentId: true, authorId: true },
     });
     if (!parent || parent.postId !== postId) throw badRequest("Parent comment not found on this post");
     // Replies are one level deep (like Facebook): a reply to a reply joins the same thread.
     rootId = parent.parentId ?? parent.id;
+    parentAuthorId = parent.authorId;
   }
 
   const row = await prisma.$transaction(async (tx) => {
@@ -132,6 +135,20 @@ export async function createComment(
     if (rootId) {
       await tx.comment.update({ where: { id: rootId }, data: { replyCount: { increment: 1 } } });
     }
+    // The person replied to hears about the reply; the post author hears about any comment.
+    const recipients = new Map<string, "REPLY" | "COMMENT">();
+    if (parentAuthorId) recipients.set(parentAuthorId, "REPLY");
+    if (!recipients.has(created.post.authorId)) recipients.set(created.post.authorId, "COMMENT");
+    await notify(
+      tx,
+      [...recipients].map(([recipientId, type]) => ({
+        recipientId,
+        actorId: viewer.id,
+        type,
+        postId,
+        commentId: created.id,
+      })),
+    );
     return created;
   });
   const [comment] = await hydrate([row], viewer);
