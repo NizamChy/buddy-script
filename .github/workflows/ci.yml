@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DATABASE_URL: postgresql://buddy:buddy@localhost:5432/buddy_script
+  DATABASE_URL_UNPOOLED: postgresql://buddy:buddy@localhost:5432/buddy_script
+  REDIS_URL: redis://localhost:6379
+  JWT_ACCESS_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+  CORS_ORIGINS: http://localhost:3000
+  API_URL: http://localhost:4000
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: buddy
+          POSTGRES_PASSWORD: buddy
+          POSTGRES_DB: buddy_script
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U buddy" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/api/package-lock.json
+            apps/web/package-lock.json
+            apps/e2e/package-lock.json
+
+      - name: Install
+        run: |
+          npm ci --prefix apps/api
+          npm ci --prefix apps/web
+          npm ci --prefix apps/e2e
+
+      - name: Database
+        run: |
+          npm --prefix apps/api run db:deploy
+          npm --prefix apps/api run db:seed
+
+      - name: API typecheck
+        run: npm --prefix apps/api run typecheck
+
+      - name: API tests (Vitest + Supertest)
+        run: npm --prefix apps/api test
+
+      - name: Web lint + typecheck
+        run: |
+          npm --prefix apps/web run lint
+          npm --prefix apps/web exec tsc -- --noEmit
+
+      - name: Web build
+        run: npm --prefix apps/web run build
+
+      - name: Playwright browsers
+        run: npx --prefix apps/e2e playwright install --with-deps chromium
+
+      - name: End-to-end tests (Playwright)
+        working-directory: apps/e2e
+        env:
+          CI: "true"
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/e2e/playwright-report
+          retention-days: 7

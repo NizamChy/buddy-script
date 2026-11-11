@@ -7,6 +7,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { env } from "./config/env";
 import { LOCAL_UPLOAD_DIR } from "./lib/storage";
 import { prisma } from "./lib/prisma";
+import { getRedis, withRedis } from "./lib/redis";
 import { ACCESS_COOKIE, verifyAccessToken } from "./lib/tokens";
 import { originGuard } from "./middleware/security";
 import { errorHandler, notFoundHandler } from "./middleware/error";
@@ -71,7 +72,11 @@ export function createApp() {
 
   app.get("/api/health", async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ ok: true });
+    // "off" = not configured (timelines served from SQL), "down" = configured but unreachable.
+    const redis = getRedis()
+      ? await withRedis("down", async (r) => ((await r.ping()) === "PONG" ? "ok" : "down"))
+      : "off";
+    res.json({ ok: true, redis });
   });
 
   app.use("/api/auth", authRouter);
