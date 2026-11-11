@@ -22,7 +22,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright 1.56 browsers are not yet built for 26.04
     timeout-minutes: 25
     services:
       postgres:
