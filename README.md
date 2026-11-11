@@ -123,6 +123,36 @@ Seeded accounts: `demo@buddyscript.com` / `Demo@12345` (user) and, locally, `adm
 - **API**: Vercel project with root `apps/api` (Express zero-config, `src/index.ts` exports the app), env `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (both set by the Neon integration), `JWT_ACCESS_SECRET`, `CORS_ORIGINS=<web url>`, `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, and optionally `REDIS_URL` (Upstash Redis).
 - **Database**: Neon serverless PostgreSQL; `npm run db:deploy && npm run db:seed` from `apps/api`.
 
-## What I'd add next
+## Roadmap — what's next
 
-Real-time delivery (SSE/WebSocket) for notifications and new posts, user profile pages and avatars upload, hashtags and mentions, ranking for the "For you" feed, moving search to a dedicated engine (e.g. OpenSearch) at very large scale, and observability (tracing, metrics, error reporting).
+The core social loop is done: auth, posts, likes, comments, the follow graph, timelines, search and notifications. Below is the plan for the next phases, roughly in priority order.
+
+### 1. Product features
+- **Profile pages** at `/u/:id`: avatar and cover upload (reusing the background image pipeline), bio, the user's posts, and follower/following lists.
+- **Real-time updates**: push new notifications and a "N new posts" banner over Server-Sent Events (Redis pub/sub fan-out) instead of 30-second polling.
+- **Mentions and hashtags**: `@name` mentions that notify the person, `#tag` pages, and trending tags computed from a Redis sorted set over a sliding window.
+- **Richer posts**: multiple images per post, link previews (fetched by a background job with SSRF protection), and short video via a transcoding service.
+- **Direct messages**: 1:1 chat (the design already has the icon) on a separate conversations/messages schema, delivered over WebSocket.
+- **Reactions** beyond like (love, haha and so on), keeping the denormalised per-type counters.
+
+### 2. Feed quality
+- **Ranked "For you" feed**: score candidates by recency, engagement velocity and affinity with the author (likes, comments and follows between the two users), and precompute them per user in Redis.
+- **Notification grouping**: "Ana and 12 others liked your post" instead of one row per like, plus per-type notification settings and email digests through the job queue.
+
+### 3. Safety and trust
+- **Moderation**: report post/comment/user, an admin queue (the RBAC is already in place), and block and mute (filtered out of feeds, search and notifications).
+- Automated content checks on uploads and text (image moderation API, spam heuristics, per-account rate limits by reputation).
+- **Account security**: email verification, password reset, optional 2FA (TOTP), a session list with "log out other devices" (refresh-token families already support revocation), and OAuth sign-in (Google/GitHub).
+
+### 4. Scale and performance
+- Move fan-out jobs to a dedicated queue/worker (e.g. BullMQ on Redis or a managed queue) once job volume outgrows the Postgres-backed queue.
+- Read replicas for feed/search reads, and table partitioning of `notifications` and `post_likes` by time.
+- Move search to a dedicated engine (OpenSearch/Meilisearch) fed from the outbox, for typo tolerance, ranking and multilingual stemming.
+- Edge caching for public, anonymous views of posts, and HTTP/2 push of the first feed page.
+
+### 5. Engineering
+- **CI**: get the Playwright job green, run e2e against Vercel preview deployments for every pull request, and require checks before merging.
+- **Observability**: structured logs, OpenTelemetry tracing across web → API → DB/Redis, Sentry for errors, and dashboards for job-queue lag and timeline cache hit rate.
+- Load tests (k6) for feed reads and fan-out at 10k/100k followers, plus seeding scripts for millions of posts.
+- OpenAPI spec generated from the zod schemas, with a typed client shared by the web app.
+- PWA / mobile: installable app with offline-cached feed, web push notifications, then a React Native client on the same API.
