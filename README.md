@@ -3,7 +3,7 @@
 A small social feed built from the provided Login / Register / Feed HTML designs:
 a **Next.js** front end, an **Express** REST API and **PostgreSQL** (via Prisma), all in TypeScript.
 
-> **Live demo:** _see the repository "About" section_ · **Demo account:** `demo@buddyscript.com` / `Demo@12345`
+> **Live demo:** https://buddy-script-social.vercel.app (API: https://buddy-script-api.vercel.app/api/health) · **Demo account:** `demo@buddyscript.com` / `Demo@12345`
 > (or click **"Continue with the demo account"** on the login page)
 
 ## Features
