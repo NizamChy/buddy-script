@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: buddy
+      POSTGRES_PASSWORD: buddy
+      POSTGRES_DB: buddy_script
+    ports:
+      - "5434:5432"
+    volumes:
+      - buddy_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buddy -d buddy_script"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  buddy_pg:

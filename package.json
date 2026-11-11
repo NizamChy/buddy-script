@@ -1,0 +1,14 @@
+{
+  "name": "buddy-script",
+  "private": true,
+  "description": "Buddy Script - a small social feed (Next.js + Express + PostgreSQL)",
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "setup": "npm --prefix apps/api install && npm --prefix apps/web install && npm --prefix apps/api run db:deploy && npm --prefix apps/api run db:seed",
+    "dev:api": "npm --prefix apps/api run dev",
+    "dev:web": "npm --prefix apps/web run dev",
+    "test": "npm --prefix apps/api test",
+    "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/web exec tsc -- --noEmit",
+    "build:web": "npm --prefix apps/web run build"
+  }
+}
