@@ -17,14 +17,12 @@ test("search, follow, Following feed and notifications", async ({ browser }) => 
 
   // People search finds Cara by her (unique) last name; follow her.
   await d.getByRole("tab", { name: "People" }).click();
-  await d.getByRole("searchbox", { name: "Search" }).fill(cara.lastName);
-  await d.getByRole("searchbox", { name: "Search" }).press("Enter");
-  const row = d.locator("div", { hasText: `${cara.firstName} ${cara.lastName}` }).getByRole("button", {
-    name: "Follow",
-    exact: true,
-  });
-  await row.first().click();
-  await expect(d.getByRole("button", { name: "Following" }).first()).toHaveAttribute("aria-pressed", "true");
+  const main = d.getByRole("main");
+  await main.getByRole("searchbox", { name: "Search", exact: true }).fill(cara.lastName);
+  await main.getByRole("searchbox", { name: "Search", exact: true }).press("Enter");
+  await expect(main.getByText(`${cara.firstName} ${cara.lastName}`)).toBeVisible();
+  await main.getByRole("button", { name: "Follow", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Following", exact: true })).toHaveAttribute("aria-pressed", "true");
 
   // Her post shows up in Dev's Following feed.
   await d.goto("/feed");

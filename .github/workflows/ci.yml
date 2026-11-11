@@ -73,6 +73,7 @@ jobs:
         working-directory: apps/web
         run: |
           npm run lint
+          npx next typegen
           npx tsc --noEmit
 
       - name: Web build
