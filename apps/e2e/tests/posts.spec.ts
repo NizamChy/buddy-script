@@ -33,8 +33,9 @@ test("post, like, comment and reply; private posts stay private", async ({ brows
   // Ann replies to Ben's comment.
   await ann.page.reload();
   const annCard = ann.page.locator("article", { hasText: publicText });
-  await expect(annCard.getByText("1 Comment")).toBeVisible();
-  await annCard.getByRole("button", { name: "1 Comment" }).click();
+  const commentsBtn = annCard.getByRole("button", { name: "1 Comment", exact: true });
+  await expect(commentsBtn).toBeVisible();
+  await commentsBtn.click();
   await annCard.getByRole("button", { name: "Reply", exact: true }).click();
   await annCard.getByPlaceholder("Reply to Ben…").fill(`Thanks Ben ${tag}`);
   await annCard.getByRole("button", { name: "Send reply" }).click();
